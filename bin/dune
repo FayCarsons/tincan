@@ -1,0 +1,4 @@
+(executable
+ (public_name server)
+ (name main)
+ (libraries chat riot minttea leaves spices))
