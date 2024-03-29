@@ -64,6 +64,8 @@ let default_client_model =
   }
 ;;
 
+(** for viewing/updating the menu page:
+    a four-tuple of label, role, initial state, and message to chat handler *)
 let menu =
   [ "Host a server", Host, default_host_model, StartServer 8080
   ; ( "Connect to a server"

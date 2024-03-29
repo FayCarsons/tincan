@@ -24,19 +24,16 @@ let string_of_error (r : [> IO.io_error ]) =
 
 let send_err err_msg = send_by_name ~name:tui_name @@ Err err_msg
 
-let string_of_message = function
-  | Send _ -> "send"
-  | Acknowleged -> "acknowleged"
-  | Received _ -> "received"
-  | Close -> "close"
-  | _ -> "unhandled"
-;;
-
 module SocketWriter = struct
+  (** State - holds the writer used to write to the TCP stream *)
   type t = { writer : Socket.stream_socket IO.Writer.t }
 
+  (** Process name *)
   let name = chat_name ^ ".sender"
 
+  (** [send t string] Attempts to send a message,
+      recursing if doing so would block or timeout
+      it forwards any other errors to the TUI *)
   let rec send ({ writer } as state) buf =
     let write = IO.write_all writer ~buf in
     match write with
@@ -53,24 +50,28 @@ module SocketWriter = struct
       shutdown ()
   ;;
 
+  (** [send_message Writer.t string] spawns a process that calls {send} 
+      with the string passsed to it *)
   let send_message writer message =
     let buf = message ^ "\r\n" in
     let _ = spawn_link @@ fun () -> send writer buf in
     ()
   ;;
 
+  (** [loop unit] process loop,
+      awaits messages and acts on them *)
   let rec loop state =
     match receive () with
     | Send msg ->
       send_message state msg;
       loop state
-    | Received _ as msg ->
-      send_by_name ~name:tui_name msg;
-      loop state
     | Close -> shutdown ()
     | _ -> loop state
   ;;
 
+  (** [start_link TcpStream.t] creates a Writer.t from the TcpStream.t 
+       spawns a process that runs {loop}
+       and registers the name "Chat.sender" to its process ID *)
   let start_link conn =
     assert (Process.where_is tui_name |> Option.is_some);
     let writer = TcpStream.to_writer conn in
@@ -81,14 +82,21 @@ module SocketWriter = struct
 end
 
 module SocketReader = struct
+  (** State - holds the role (Host/Client), TCP stream, and a buffer *)
   type t =
     { conn : TcpStream.t
     ; role : role
     ; bufs : IO.Iovec.t
     }
 
+  (** Process name *)
   let name = chat_name ^ ".listener"
 
+  (** [read ?string Iovec.t TcpStream.t] reads from TCP stream,
+      recursing if the string received has a length of > 0 and
+      doesn't end in a carriage return + newline.
+      On recursion, it concatenates the string received in the
+      previous iteration with the one currenly received *)
   let rec read ?(carry_over = "") bufs conn =
     let* bytes_read = TcpStream.receive ~bufs conn in
     let raw = IO.Iovec.into_string bufs in
@@ -102,6 +110,9 @@ module SocketReader = struct
     else Ok carry_over
   ;;
 
+  (** [listen t] recursively {read}s from TCP stream, 
+      checking if the string received is the acknowledged flag 
+      and sending messages to the TUI as necessary *)
   let rec listen ({ conn; role; bufs } as state) =
     match read bufs conn with
     | Ok msg when role = Client ->
@@ -124,6 +135,8 @@ module SocketReader = struct
       shutdown ()
   ;;
 
+  (** [start_link role TcpStream.t] begins the listener process and binds
+      the name "Chat.listener" to its process ID *)
   let start_link role conn =
     assert (Process.where_is tui_name |> Option.is_some);
     let bufs = IO.Iovec.create ~size:1024 () in
@@ -134,7 +147,8 @@ module SocketReader = struct
 end
 
 (** [init_server int state] creates a TCP socket and begins listening for connections on it
-    Accepts a `state` option so that it cannot be initialized twice *)
+    Once a connection is established it sends a "Connected" message to the TUI
+    and returns state *)
 let init_server port =
   let* socket = TcpListener.bind ~port () in
   Logger.error (fun f -> f "Created server on port %d" port);
@@ -144,7 +158,9 @@ let init_server port =
   Ok { role = Host; conn = fst conn }
 ;;
 
-(** [init_client uri] connects socket to URI *)
+(** [init_client uri] connects socket to URI,
+    Sends "Connected" message to TUI
+    and returns state *)
 let init_client uri =
   let* sockaddr = Addr.of_uri uri in
   let* conn = TcpStream.connect sockaddr in
@@ -152,9 +168,13 @@ let init_client uri =
   Ok { role = Client; conn }
 ;;
 
+(** [handler unit] Listens for initialization or close messages from TUI
+    From there it initializes the TCP connection and child processes with
+    the correct state *)
 let handler () =
   let rec loop () =
     match receive () with
+    (* User is starting in host mode *)
     | StartServer port ->
       (match init_server port with
        | Ok { role; conn } ->
@@ -164,6 +184,7 @@ let handler () =
        | Error err ->
          send_by_name ~name:tui_name @@ Err (string_of_error err);
          loop ())
+    (* User is starting in client mode *)
     | StartClient uri ->
       (match init_client uri with
        | Ok { role; conn } ->
@@ -174,12 +195,15 @@ let handler () =
        | Error err ->
          send_by_name ~name:tui_name @@ Err (string_of_error err);
          loop ())
+    (* User has quit app *)
     | Close -> shutdown ()
+    (* Unkonwn/irrelevant message*)
     | _ -> loop ()
   in
   loop ()
 ;;
 
+(** [start unit] begins {handler} and registers "Chat" to its process ID*)
 let start () =
   Logger.set_log_level (Some Logger.Error);
   let pid = spawn_link handler in

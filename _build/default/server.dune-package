@@ -1,0 +1,4 @@
+(lang dune 3.14)
+(name server)
+(sections (lib .) (bin ../../bin))
+(files (lib (META dune-package opam)) (bin (server)))
