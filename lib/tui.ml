@@ -78,8 +78,8 @@ let menu =
 (** [bound_idx f idx] ensures that f idx stays within the range of possible menu options *)
 let bound_idx f idx = (f idx mod 2 |> ( + ) 2) mod 2
 
-(** [update_menu choice event] Handles menu choice, returns initialized chat state
-    when `Enter` is hit and a choice is made *)
+(** [update_menu choice event] handles events for menu "page"
+    this includes selecting the role (Host | Client)*)
 let update_menu idx = function
   | Event.KeyDown Event.Up -> Menu (bound_idx pred idx), Command.Noop
   | Event.KeyDown Event.Down -> Menu (bound_idx succ idx), Command.Noop
@@ -103,6 +103,7 @@ let get_elapsed acknowleged =
   | _unreachable -> ""
 ;;
 
+(** [update_chat model] handles event for chat "page" *)
 let update_chat ({ role; connection; acknowleged; text; spinner; history } as model)
   = function
   | Event.Custom (Utils.Err e) -> Chat { model with connection = Fatal e }, Command.Noop
@@ -170,6 +171,8 @@ let update_chat ({ role; connection; acknowleged; text; spinner; history } as mo
     model, Command.Noop
 ;;
 
+(** [update Event.t model] main update fn
+    matches on model and dispatches args to correct update fn*)
 let update event model =
   (match event with
    | Event.Custom _ as event ->

@@ -1,4 +1,5 @@
 open Riot
+open Utils
 module Socket = Net.Socket
 module Addr = Net.Addr
 module TcpListener = Net.Tcp_listener
@@ -6,13 +7,11 @@ module TcpStream = Net.Tcp_stream
 
 let ( let* ) = Result.bind
 
-open Utils
+(** [assert_tui unit] for debugging, asserts that the TUI process
+    is running and accessible by the expected name *)
+let assert_tui () = assert (Process.where_is tui_name |> Option.is_some)
 
-type state =
-  { role : role
-  ; conn : Socket.stream_socket
-  }
-
+(** [string_of_error IO.io_error] converts an io_error to a string *)
 let string_of_error (r : [> IO.io_error ]) =
   match r with
   | `No_info -> Printf.sprintf "No info\r\n%!"
@@ -31,8 +30,13 @@ module SocketWriter = struct
   (** Process name *)
   let name = chat_name ^ ".sender"
 
+  (* Set namespace for logger *)
+  open Logger.Make (struct
+      let namespace = [ "chat"; "sender" ]
+    end)
+
   (** [send t string] Attempts to send a message,
-      recursing if doing so would block or timeout
+      recursing if doing so would block
       it forwards any other errors to the TUI *)
   let rec send ({ writer } as state) buf =
     let write = IO.write_all writer ~buf in
@@ -41,7 +45,7 @@ module SocketWriter = struct
       Logger.error (fun f -> f "Sent!");
       let flushed = IO.flush writer in
       Result.iter_error (string_of_error >> send_err) flushed
-    | Error `Would_block | Error `Timeout ->
+    | Error `Would_block ->
       yield ();
       send state buf
     | Error err ->
@@ -61,6 +65,7 @@ module SocketWriter = struct
   (** [loop unit] process loop,
       awaits messages and acts on them *)
   let rec loop state =
+    assert_tui ();
     match receive () with
     | Send msg ->
       send_message state msg;
@@ -73,7 +78,7 @@ module SocketWriter = struct
        spawns a process that runs {loop}
        and registers the name "Chat.sender" to its process ID *)
   let start_link conn =
-    assert (Process.where_is tui_name |> Option.is_some);
+    assert_tui ();
     let writer = TcpStream.to_writer conn in
     let pid = spawn_link @@ fun () -> loop { writer } in
     register name pid;
@@ -91,6 +96,11 @@ module SocketReader = struct
 
   (** Process name *)
   let name = chat_name ^ ".listener"
+
+  (* Set namespace for logger *)
+  open Logger.Make (struct
+      let namespace = [ "chat"; "reader" ]
+    end)
 
   (** [read ?string Iovec.t TcpStream.t] reads from TCP stream,
       recursing if the string received has a length of > 0 and
@@ -114,6 +124,7 @@ module SocketReader = struct
       checking if the string received is the acknowledged flag 
       and sending messages to the TUI as necessary *)
   let rec listen ({ conn; role; bufs } as state) =
+    assert_tui ();
     match read bufs conn with
     | Ok msg when role = Client ->
       Logger.error (fun f -> f "LISTENER RECEIVED: %s" msg);
@@ -138,7 +149,7 @@ module SocketReader = struct
   (** [start_link role TcpStream.t] begins the listener process and binds
       the name "Chat.listener" to its process ID *)
   let start_link role conn =
-    assert (Process.where_is tui_name |> Option.is_some);
+    assert_tui ();
     let bufs = IO.Iovec.create ~size:1024 () in
     let pid = spawn_link @@ fun () -> listen { conn; role; bufs } in
     register name pid;
@@ -155,7 +166,7 @@ let init_server port =
   let* conn = TcpListener.accept socket in
   Logger.error (fun f -> f "Connected with %a" Addr.pp (snd conn));
   send_by_name ~name:tui_name Connected;
-  Ok { role = Host; conn = fst conn }
+  Ok (Host, fst conn)
 ;;
 
 (** [init_client uri] connects socket to URI,
@@ -165,7 +176,7 @@ let init_client uri =
   let* sockaddr = Addr.of_uri uri in
   let* conn = TcpStream.connect sockaddr in
   send_by_name ~name:tui_name Connected;
-  Ok { role = Client; conn }
+  Ok (Client, conn)
 ;;
 
 (** [handler unit] Listens for initialization or close messages from TUI
@@ -176,8 +187,9 @@ let handler () =
     match receive () with
     (* User is starting in host mode *)
     | StartServer port ->
+      Logger.error (fun f -> f "RECEIVED `Startserver` FROM TUI");
       (match init_server port with
-       | Ok { role; conn } ->
+       | Ok (role, conn) ->
          let _sender = SocketWriter.start_link conn in
          let _listener = SocketReader.start_link role conn in
          loop ()
@@ -186,11 +198,11 @@ let handler () =
          loop ())
     (* User is starting in client mode *)
     | StartClient uri ->
+      Logger.error (fun f -> f "RECEIVED `Startserver` FROM TUI");
       (match init_client uri with
-       | Ok { role; conn } ->
+       | Ok (role, conn) ->
          let _sender = SocketWriter.start_link conn in
          let _listener = SocketReader.start_link role conn in
-         send_by_name ~name:tui_name Connected;
          loop ()
        | Error err ->
          send_by_name ~name:tui_name @@ Err (string_of_error err);
