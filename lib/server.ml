@@ -14,16 +14,23 @@ let assert_tui () = assert (Process.where_is tui_name |> Option.is_some)
 (** [string_of_error IO.io_error] converts an io_error to a string *)
 let string_of_error (r : [> IO.io_error ]) =
   match r with
-  | `No_info -> Printf.sprintf "No info\r\n%!"
+  | `No_info -> "No info\r\n"
   | `Connection_closed -> Printf.sprintf "Connection closed\r\n%!"
   | `Exn exn -> Printf.sprintf "Exn: %S\r\n%!" (Printexc.to_string exn)
   | `Unix_error err -> Printf.sprintf "Unix error: %S\r\n%!" (Unix.error_message err)
-  | _ -> Printf.sprintf "other error"
+  | `Noop -> "NoOp\r\n"
+  | `Eof -> "End of file\r\n"
+  | `Closed -> "Closed\r\n"
+  | `Process_down -> "Process down!\r\n"
+  | _ -> Printf.sprintf "other error\r\n"
 ;;
 
+(** [send_err IO.io_error] sends an error to the TUI *)
 let send_err err_msg = send_by_name ~name:tui_name @@ Err err_msg
 
 module SocketWriter = struct
+  (** Contains initializer and helpers for process which handles sending message over TCP stream *)
+
   (** State - holds the writer used to write to the TCP stream *)
   type t = { writer : Socket.stream_socket IO.Writer.t }
 
@@ -87,11 +94,13 @@ module SocketWriter = struct
 end
 
 module SocketReader = struct
+  (** contains initializer and helpers for process which
+      handles reading from TCP stream and forwarding messages to TUI *)
+
   (** State - holds the role (Host/Client), TCP stream, and a buffer *)
   type t =
     { conn : TcpStream.t
     ; role : role
-    ; bufs : IO.Iovec.t
     }
 
   (** Process name *)
@@ -107,25 +116,24 @@ module SocketReader = struct
       doesn't end in a carriage return + newline.
       On recursion, it concatenates the string received in the
       previous iteration with the one currenly received *)
-  let rec read ?(carry_over = "") bufs conn =
-    let* bytes_read = TcpStream.receive ~bufs conn in
-    let raw = IO.Iovec.into_string bufs in
-    Logger.error (fun f -> f "LISTENER RECEIVED: %s" raw);
+  let rec read ?(carry_over = "") conn =
+    let* bs = Bytestring.with_bytes ~capacity:4096 @@ TcpStream.read conn in
+    let raw = Bytestring.to_string bs in
     let has_carry_over = not (String.ends_with ~suffix:"\r\n" raw) in
-    if has_carry_over || bytes_read = 0
+    if has_carry_over
     then (
       let carry_over = carry_over ^ raw in
       yield ();
-      read ~carry_over bufs conn)
+      read ~carry_over conn)
     else Ok carry_over
   ;;
 
   (** [listen t] recursively {read}s from TCP stream, 
       checking if the string received is the acknowledged flag 
       and sending messages to the TUI as necessary *)
-  let rec listen ({ conn; role; bufs } as state) =
+  let rec listen ({ conn; role } as state) =
     assert_tui ();
-    match read bufs conn with
+    match read conn with
     | Ok msg when role = Client ->
       Logger.error (fun f -> f "LISTENER RECEIVED: %s" msg);
       let is_acknowledged_flag =
@@ -133,13 +141,15 @@ module SocketReader = struct
       in
       let msg_to_tui = if is_acknowledged_flag then Acknowleged else Received msg in
       send_by_name ~name:tui_name msg_to_tui;
+      yield ();
       listen state
     | Ok msg ->
       Logger.error (fun f -> f "LISTENER RECEIVED: %s" msg);
       send_by_name ~name:tui_name @@ Received msg;
+      yield ();
       listen state
     | Error `Would_block | Error `Timeout ->
-      Logger.error (fun f -> f "WOULD BLOCK/TIMEOUT");
+      yield ();
       listen state
     | Error err ->
       send_err (string_of_error err);
@@ -150,8 +160,7 @@ module SocketReader = struct
       the name "Chat.listener" to its process ID *)
   let start_link role conn =
     assert_tui ();
-    let bufs = IO.Iovec.create ~size:1024 () in
-    let pid = spawn_link @@ fun () -> listen { conn; role; bufs } in
+    let pid = spawn_link @@ fun () -> listen { conn; role } in
     register name pid;
     pid
   ;;
