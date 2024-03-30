@@ -10,7 +10,7 @@ type Riot.Message.t +=
       StartServer of int * Riot.Pid.t
   | (* Start client *)
       StartClient of Uri.t * Riot.Pid.t
-  | (* Host/Client started *) Connected
+  | (* Host/Client started *) Connected of Riot.Pid.t
   | (* Host sent back acknowleged message *)
       Acknowleged
   | (* Received a message *)
@@ -29,7 +29,7 @@ type role =
   | Host
   | Client
 
-let acknowleged = "$ACKNOWLEGED"
+let acknowleged = "$PING"
 let chat_name = "Chat"
 let tui_name = "tui"
 
