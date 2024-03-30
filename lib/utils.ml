@@ -1,8 +1,15 @@
+type strategy =
+  | SingleProcess
+  | Multiprocess
+
+let current_strategy = SingleProcess
+
 type Riot.Message.t +=
+  | Alive
   | (* Start server (port) *)
-      StartServer of int
+      StartServer of int * Riot.Pid.t
   | (* Start client *)
-      StartClient of Uri.t
+      StartClient of Uri.t * Riot.Pid.t
   | (* Host/Client started *) Connected
   | (* Host sent back acknowleged message *)
       Acknowleged
@@ -24,7 +31,7 @@ type role =
 
 let acknowleged = "$ACKNOWLEGED"
 let chat_name = "Chat"
-let tui_name = "TUI"
+let tui_name = "tui"
 
 let not_role = function
   | Host -> Client

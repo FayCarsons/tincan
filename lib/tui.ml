@@ -46,55 +46,37 @@ let initial_model = Menu 0
 
 let default_host_model =
   { role = Host
-  ; connection = Waiting
+  ; connection = Open
   ; acknowleged = HostAcknowleged
   ; text = Text_input.empty ()
   ; spinner = Some Spinner.points
-  ; history = []
+  ; history = [ Host, "Connecting . . ." ]
   }
 ;;
 
 let default_client_model =
   { role = Client
-  ; connection = Waiting
+  ; connection = Open
   ; acknowleged = HostAcknowleged
   ; text = Text_input.empty ()
   ; spinner = Some Spinner.points
-  ; history = []
+  ; history = [ Client, "connecting . . ." ]
   }
 ;;
 
 (** for viewing/updating the menu page:
     a four-tuple of label, role, initial state, and message to chat handler *)
-let menu =
-  [ "Host a server", Host, default_host_model, StartServer 8080
+let menu () =
+  [ "Host a server", Host, default_host_model, StartServer (8080, Riot.Pid.zero)
   ; ( "Connect to a server"
     , Client
     , default_client_model
-    , StartClient (Uri.of_string "//127.0.0.1:8080") )
+    , StartClient (Uri.of_string "//0.0.0.0:8080", Riot.Pid.zero) )
   ]
 ;;
 
 (** [bound_idx f idx] ensures that f idx stays within the range of possible menu options *)
 let bound_idx f idx = (f idx mod 2 |> ( + ) 2) mod 2
-
-(** [update_menu choice event] handles events for menu "page"
-    this includes selecting the role (Host | Client)*)
-let update_menu idx = function
-  | Event.KeyDown Event.Up -> Menu (bound_idx pred idx), Command.Noop
-  | Event.KeyDown Event.Down -> Menu (bound_idx succ idx), Command.Noop
-  | Event.KeyDown Event.Enter ->
-    let _, role, model, msg = List.nth menu idx in
-    let model =
-      match role with
-      | Host -> Chat model
-      | Client -> Chat { model with acknowleged = Sent (Unix.gettimeofday ()) }
-    in
-    Riot.send_by_name ~name:chat_name msg;
-    model, Command.Hide_cursor
-  | Event.KeyDown Event.Escape -> Menu idx, Command.Quit
-  | _ -> Menu idx, Command.Noop
-;;
 
 (** [get_elapsed msg-state] takes time of sent messssage, subtracts it from current time and converts to a string *)
 let get_elapsed acknowleged =
@@ -103,14 +85,45 @@ let get_elapsed acknowleged =
   | _unreachable -> ""
 ;;
 
+(** [update_menu choice event] handles events for menu "page"
+    this includes selecting the role (Host | Client)*)
+let update_menu idx = function
+  | Event.KeyDown (Event.Up, _) -> Menu (bound_idx pred idx), Command.Noop
+  | Event.KeyDown (Event.Down, _) -> Menu (bound_idx succ idx), Command.Noop
+  | Event.KeyDown (Event.Enter, _) ->
+    let menu = menu () in
+    let _, role, model, msg = List.nth menu idx in
+    let model =
+      match role with
+      | Host -> Chat model
+      | Client -> Chat model
+    in
+    let msg =
+      match msg with
+      | StartServer (port, _) -> StartServer (port, Riot.self ())
+      | StartClient (uri, _) -> StartClient (uri, Riot.self ())
+      | _unreachable -> failwith "entered unreachable branch: tui.ml 105"
+    in
+    Riot.send_by_name ~name:chat_name msg;
+    model, Command.Hide_cursor
+  | Event.KeyDown (Event.Escape, _) -> Menu idx, Command.Quit
+  | Event.Custom Utils.Connected ->
+    for _ = 1 to 100 do
+      Logger.error (fun f -> f {|RECEIVED "Connected" IN MENU UPDATE|})
+    done;
+    Menu idx, Command.Noop
+  | _ -> Menu idx, Command.Noop
+;;
+
 (** [update_chat model] handles event for chat "page" *)
-let update_chat ({ role; connection; acknowleged; text; spinner; history } as model)
-  = function
-  | Event.Custom (Utils.Err e) -> Chat { model with connection = Fatal e }, Command.Noop
+let update_chat ({ role; acknowleged; text; history; spinner; _ } as model) = function
+  | Event.Custom (Utils.Err e) ->
+    Chat { model with history = (role, e) :: history }, Command.Noop
   | Event.Frame now ->
     let spinner = Option.map (Sprite.update ~now) spinner in
     Chat { model with spinner }, Command.Noop
   | Event.Custom (Received msg) ->
+    Logger.error (fun f -> f "TUI RECEIVED MESSAGE: %s" msg);
     ( Chat
         { model with
           history = ((if role = Client then Host else Client), msg) :: history
@@ -130,6 +143,9 @@ let update_chat ({ role; connection; acknowleged; text; spinner; history } as mo
     in
     model, Command.Noop
   | Event.Custom Utils.Connected ->
+    for _ = 1 to 20 do
+      Logger.error (fun f -> f "TUI RECEIVED CONNECTED")
+    done;
     let model =
       if role = Client
       then
@@ -149,18 +165,33 @@ let update_chat ({ role; connection; acknowleged; text; spinner; history } as mo
     in
     model, Command.Noop
   | Event.Custom Closed -> Chat { model with connection = Shutdown }, Command.Noop
-  | Event.KeyDown Event.Enter ->
+  (* | Event.KeyDown (Event.Enter, _) when role = Client ->
     let model =
       (* Don't send multiple messages if a message is still pending *)
       if connection = Open && acknowleged = HostAcknowleged
       then (
-        let msg = Text_input.view text in
-        Riot.send_by_name ~name:Sender.name (Send msg);
+        let msg = Text_input.current_text text in
+        let name =
+          if current_strategy = SingleProcess
+          then Server.Handler.name
+          else Server.SocketWriter.name
+        in
+        Riot.send_by_name ~name (Send msg);
         Chat { model with acknowleged = Sent (Unix.gettimeofday ()) })
       else Chat model
     in
-    model, Command.Noop
-  | Event.KeyDown Event.Escape -> Menu 0, Command.Hide_cursor
+    model, Command.Noop *)
+  | Event.KeyDown (Event.Enter, _) ->
+    let msg = Text_input.current_text text in
+    let name =
+      if current_strategy = SingleProcess
+      then Server.Handler.name
+      else Server.SocketWriter.name
+    in
+    Riot.send_by_name ~name @@ Send msg;
+    ( Chat { model with text = Text_input.empty (); history = (role, msg) :: history }
+    , Command.Noop )
+  | Event.KeyDown (Event.Escape, _) -> Menu 0, Command.Hide_cursor
   | key ->
     Logger.error (fun f -> f "Event: %a" Event.pp key);
     let model =
@@ -178,6 +209,7 @@ let update event model =
    | Event.Custom _ as event ->
      Logger.error (fun f -> f "TUI RECEIVED: %a" Event.pp event)
    | _ -> ());
+  assert (Riot.Process.where_is Server.SingleProcess.name |> Option.is_some);
   match model with
   | Menu idx -> update_menu idx event
   | Chat state -> update_chat state event
@@ -195,17 +227,13 @@ let view_menu current_idx =
     Format.sprintf "%s %s" cursor choice
   in
   let options =
-    List.mapi (fun i (choice, _, _, _) -> place_cursor i choice) menu
+    List.mapi (fun i (choice, _, _, _) -> place_cursor i choice) (menu ())
     |> String.concat "\n"
   in
   apply_list_style "Hi! What would you like to do?\n%s\nPress `esc` to exit" options
 ;;
 
 let view_chat { role; connection; text; spinner; history; _ } =
-  if Random.float 1. > 0.9999
-  then
-    Logger.error (fun f ->
-      f "Current connection state in TUI: %s" (string_of_conn connection));
   let open Spices in
   let apply_role_style user (role, body) =
     let other_user_style = default |> fg other_user_color |> build in
@@ -227,11 +255,14 @@ let view_chat { role; connection; text; spinner; history; _ } =
     let sprite = Option.map Sprite.view spinner |> Option.value ~default:"" in
     info_style "Connecting to server %s" sprite
   | _, Open ->
-    let history = List.map (apply_role_style role) history |> String.concat "\n" in
+    let history =
+      List.rev history |> List.map (apply_role_style role) |> String.concat "\n"
+    in
     let history_syle = default |> margin_top 2 |> margin_left 2 |> build in
     let input_style = default |> margin_bottom 2 |> margin_left 2 |> build in
-    let text_input = input_style "\n%s" @@ Text_input.view text in
-    history_syle "%s\n" history ^ text_input
+    let current_input = Text_input.view text in
+    let text_input = input_style "\n%s" in
+    history_syle "%s\n" history ^ text_input current_input
   | Host, Shutdown ->
     info_style "Client connection closed, wait for another if you'd like!%s" ""
   | Client, Shutdown -> info_style "Connection closed by host :/%s" ""
