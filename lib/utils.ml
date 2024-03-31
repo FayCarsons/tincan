@@ -1,40 +1,18 @@
-(** Message type that is sent between process so they may communicate *)
+(** Message type processes use to communicate *)
 type Riot.Message.t +=
-  | (* Start server (port) *)
-      StartServer of int * Riot.Pid.t
-  | (* Start client *)
-      StartClient of Uri.t * Riot.Pid.t
-  | (* Host/Client started *)
-      Connected of Riot.Pid.t
-  | (* Host sent back acknowleged message *)
-      Acknowleged
-  | (* Received a message *)
-      Received of string
-  | (* Send a message *)
-      Send of string
-  | (* Close connection and kill process *)
-      Close
-  | (* Connection closed *)
-      Closed
-  | (* Fatal error *)
-      Err of string
+  | StartServer of int * Riot.Pid.t  (** Start server *)
+  | StartClient of Uri.t * Riot.Pid.t  (** Start client  *)
+  | Connected of Riot.Pid.t  (** Host/Client started *)
+  | Acknowleged  (** Host sent back acknowleged message *)
+  | Received of string  (** Received a message *)
+  | Send of string  (** Send a message *)
+  | Close  (** Close connection and kill process *)
+  | Closed (* Connection closed *)
+  | Err of string  (** Server error *)
 
 let ( >> ) f g x = g @@ f x
 
-type role =
-  | Host
-  | Client
+(** The user's role *)
+type role = Host | Client
 
 let acknowleged = "$PING"
-let chat_name = "Chat"
-let tui_name = "tui"
-
-let not_role = function
-  | Host -> Client
-  | Client -> Host
-;;
-
-let string_of_role = function
-  | Host -> "Host"
-  | Client -> "Client"
-;;

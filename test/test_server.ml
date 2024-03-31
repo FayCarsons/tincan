@@ -1,15 +1,29 @@
-(*
-   let sender_name = Server.SocketWriter.name
-   let listener_name = Server.SocketReader.name
+open OUnitTest
+module Server = Chat.Server
+module Utils = Chat.Utils
 
-   module TuiSim = struct
-   let name = "TUI"
-   let send_to_handler msg = send_by_name ~name msg
+let create_server _ =
+  let open Riot in
+  let server () =
+    spawn_link
+    @@ fun () ->
+    let init = Server.init_server 8080 in
+    assert (Result.is_ok init)
+  in
+  let client () =
+    spawn_link
+    @@ fun () ->
+    let init = Server.init_client (Uri.of_string "//0.0.0.0:8080") in
+    assert (Result.is_ok init)
+  in
+  let test () =
+    let server = server () in
+    let client = client () in
+    send server Utils.Close;
+    send client Utils.Close
+  in
+  run test
+;;
 
-   let start () =
-   let pid = spawn_link (fun () -> ()) in
-   register name pid;
-   Ok pid
-   ;;
-   end
-*)
+let server_suite = "TCP server tests" >::: [ "Creating a server" >:: create_server ]
+let () = OUnit2.run_test_tt_main server_suite
