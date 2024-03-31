@@ -178,7 +178,6 @@ module Handler = struct
     Logger.set_log_level None;
     let pid = spawn_link handler in
     register chat_name pid;
-    Option.iter link (Process.where_is tui_name);
     Ok pid
   ;;
 end

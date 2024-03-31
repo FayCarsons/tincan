@@ -52,7 +52,7 @@ let default_host_model =
   ; connection = Waiting
   ; acknowleged = HostAcknowleged
   ; text = Text_input.empty ()
-  ; spinner = Some Spinner.points
+  ; spinner = Some Spinner.meter
   ; history = []
   }
 ;;
@@ -62,7 +62,7 @@ let default_client_model =
   ; connection = Waiting
   ; acknowleged = HostAcknowleged
   ; text = Text_input.empty ()
-  ; spinner = Some Spinner.points
+  ; spinner = Some Spinner.mini_dot
   ; history = []
   }
 ;;
