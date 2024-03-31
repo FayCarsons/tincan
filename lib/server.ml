@@ -23,7 +23,8 @@ let string_of_error = function
   | `Process_down -> "Process down!\r\n"
   | _ -> Printf.sprintf "other error\r\n"
 
-(** [send_err IO.io_error] sends an error to the TUI *)
+(** [send_err IO.io_error] sends an error to the TUI where it is shown to the user 
+    this is currently how errors are handled *)
 let send_err recv err_msg = send recv @@ Err (string_of_error err_msg)
 
 module Connection = struct
@@ -35,6 +36,9 @@ module Connection = struct
 
   (** Process name *)
   let name = "Handler.connection"
+
+  (** `Acknowledged` flag sent to client when host receives a messaage via TCP *)
+  let acknowleged = "$PING"
 
   type t = {
     reader : TcpStream.t IO.Reader.t;
@@ -48,16 +52,15 @@ module Connection = struct
   (** [send_message state message] sends a string via the current TCP connection *)
   let rec send_message ({ writer; recv; _ } as state) message =
     let bufs = IO.Iovec.from_string @@ message ^ "\r\n" in
-    Logger.error (fun f -> f "Sending messsage: %s" message);
     match IO.write_all_vectored writer ~bufs with
     | Ok _ -> (
+        (* After sending we flush the writer to ensure its buffer is clear *)
         match IO.flush writer with
         | Ok () -> Logger.error (fun f -> f "Flushed writer!")
         | exception e -> send recv @@ Err (Printexc.to_string e)
         | Error err -> send_err recv err)
     | exception e ->
         let reason = Printexc.to_string e in
-        Logger.error (fun f -> f "EXCEPTION: %s" reason);
         send recv @@ Err reason
     | Error `Would_block | Error `Timeout ->
         yield ();
@@ -75,15 +78,12 @@ module Connection = struct
     with
     | Ok bs when Bytestring.length bs = 0 -> send recv Closed
     | Ok msg when role = Host ->
-        Logger.error (fun f -> f "RECEIVED `%a` OVER TCP" Bytestring.pp msg);
         let msg = Bytestring.to_string msg in
         send recv @@ Received msg;
         send_message state acknowleged
     | Ok msg ->
-        Logger.error (fun f -> f "RECEIVED `%a` OVER TCP" Bytestring.pp msg);
         let raw = Bytestring.to_string msg |> String.trim in
         let is_ping = String.starts_with ~prefix:acknowleged raw in
-        Logger.error (fun f -> f "RECEIVED IS PING? %b" is_ping);
         let msg_to_tui = if is_ping then Acknowleged else Received raw in
         send recv msg_to_tui
     | Error `Would_block | (exception Syscall_timeout) -> ()
@@ -91,8 +91,9 @@ module Connection = struct
         send_err recv err;
         shutdown ()
 
-  (** [start_loop state] starts the main process loop which alternates between attempting to 
-      read the process mailbox, read the TCP stream, and write to the TCP stream *)
+  (** [start_loop state] starts the main process loop this proces alternates between 
+      attempting to read the process mailbox and read the TCP stream. 
+      Both of these calls time out to prevent deadlocks or extended blocking. *)
   let start_loop state =
     let rec loop ({ conn; recv; _ } as state) =
       match receive_any ~after:10L () with

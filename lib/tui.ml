@@ -163,26 +163,26 @@ let update_chat
   | Event.Custom (Connected handler) ->
       let model =
         if role = Client then
-          Chat
-            {
-              model with
-              connection = Open handler;
-              acknowleged = HostAcknowleged;
-              history =
-                ( Client,
-                  Printf.sprintf "Connected to host in %ss"
-                    (get_elapsed acknowleged) )
-                :: history;
-            }
+          {
+            model with
+            connection = Open handler;
+            acknowleged = HostAcknowleged;
+            spinner = None;
+            history =
+              ( role,
+                Printf.sprintf "Connected to host in %ss"
+                  (get_elapsed acknowleged) )
+              :: history;
+          }
         else
-          Chat
-            {
-              model with
-              connection = Open handler;
-              history = (Host, "Established connection with client") :: history;
-            }
+          {
+            model with
+            connection = Open handler;
+            spinner = None;
+            history = (role, "Established connection with client") :: history;
+          }
       in
-      (model, Command.Noop)
+      (Chat model, Command.Noop)
   (* Connection closed *)
   | Event.Custom Closed ->
       (Chat { model with connection = Shutdown }, Command.Noop)
@@ -194,17 +194,16 @@ let update_chat
         | Open handler, HostAcknowleged ->
             let msg = Text_input.current_text text in
             Riot.send handler (Send msg);
-            Chat { model with acknowleged = Sent (time ()) }
+            { model with acknowleged = Sent (time ()) }
         | _ ->
-            Chat
-              {
-                model with
-                history =
-                  (role, "Cannot send messages while pending a response")
-                  :: history;
-              }
+            {
+              model with
+              history =
+                (role, "Cannot send messages while pending a response")
+                :: history;
+            }
       in
-      (model, Command.Noop)
+      (Chat model, Command.Noop)
   (* If we aren't in client mode we can just send the message and cons it onto history *)
   | Event.KeyDown (Event.Enter, _) ->
       let msg = Text_input.current_text text in
@@ -217,7 +216,8 @@ let update_chat
             history = (role, msg) :: history;
           },
         Command.Noop )
-  (* Escape closes the server process and takes us back to the menu *)
+  (* Escape closes the server process and TCP connection,
+     and takes us back to the menu *)
   | Event.KeyDown (Event.Escape, _) ->
       (match connection with
       | Open handler -> Riot.send handler Close
@@ -288,7 +288,7 @@ let view_chat { role; connection; text; spinner; history; _ } =
       let input_style = default |> margin_bottom 2 |> margin_left 2 |> build in
       let current_input = Text_input.view text in
       let text_input = input_style "%s" in
-      history_syle "%s\n" history ^ text_input current_input
+      history_syle "%s" history ^ text_input current_input
   | Host, Shutdown -> main_style "Client connection closed %s" String.empty
   | Client, Shutdown -> main_style "Connection closed by host :/%s" String.empty
 

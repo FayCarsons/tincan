@@ -1,3 +1,6 @@
+(** Utility types and funcions
+   these are mostly here to prevent circular dependencies *)
+
 (** Message type processes use to communicate *)
 type Riot.Message.t +=
   | StartServer of int * Riot.Pid.t  (** Start server *)
@@ -10,9 +13,8 @@ type Riot.Message.t +=
   | Closed (* Connection closed *)
   | Err of string  (** Server error *)
 
+(** Function composition *)
 let ( >> ) f g x = g @@ f x
 
 (** The user's role *)
 type role = Host | Client
-
-let acknowleged = "$PING"
