@@ -1,6 +1,6 @@
-2024-03-31T20:22:45+00:00 Fays-MBP.fios-router.home#01 I: Start test Terminal_UI_tests:0:Test menu updates.
-2024-03-31T20:22:45+00:00 Fays-MBP.fios-router.home#01 I: Test Terminal_UI_tests:0:Test menu updates is successful.
-2024-03-31T20:22:45+00:00 Fays-MBP.fios-router.home#01 I: End test Terminal_UI_tests:0:Test menu updates.
-2024-03-31T20:22:45+00:00 Fays-MBP.fios-router.home#01 I: Start test Terminal_UI_tests:2:Test KeyDown events.
-2024-03-31T20:22:45+00:00 Fays-MBP.fios-router.home#01 I: Test Terminal_UI_tests:2:Test KeyDown events is successful.
-2024-03-31T20:22:45+00:00 Fays-MBP.fios-router.home#01 I: End test Terminal_UI_tests:2:Test KeyDown events.
+2024-03-31T20:42:50+00:00 Fays-MBP.fios-router.home#01 I: Start test Terminal_UI_tests:0:Test menu updates.
+2024-03-31T20:42:50+00:00 Fays-MBP.fios-router.home#01 I: Test Terminal_UI_tests:0:Test menu updates is successful.
+2024-03-31T20:42:50+00:00 Fays-MBP.fios-router.home#01 I: End test Terminal_UI_tests:0:Test menu updates.
+2024-03-31T20:42:50+00:00 Fays-MBP.fios-router.home#01 I: Start test Terminal_UI_tests:2:Test KeyDown events.
+2024-03-31T20:42:50+00:00 Fays-MBP.fios-router.home#01 I: Test Terminal_UI_tests:2:Test KeyDown events is successful.
+2024-03-31T20:42:50+00:00 Fays-MBP.fios-router.home#01 I: End test Terminal_UI_tests:2:Test KeyDown events.

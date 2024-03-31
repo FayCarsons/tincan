@@ -3,14 +3,20 @@ module Server = Chat.Server
 module Utils = Chat.Utils
 module Tui = Chat.Tui
 
-(* Sadly, due to Riot's multi-threading and scheduler system,
-   testing is a nightmare and is going to require more work than I can put in currently
+(* Unfortunately, due to Riot's multi-threading and scheduler system,
+   testing is non-trivial for an app like this
+   and is going to require time than I have right now.
    that said, I've tested what I can *)
 
 let create_socket _ = assert (Server.get_socket 8080 |> Result.is_ok)
+let test_acknowledged _ = assert_equal Server.Connection.acknowleged "$PING"
 
 let server_suite =
-  "TCP_server_tests" >::: [ "Creating a socket" >:: create_socket ]
+  "TCP_server_tests"
+  >::: [
+         "Creating a socket" >:: create_socket;
+         "test acknowleged flag equality works" >:: test_acknowledged;
+       ]
 
 let () = OUnit2.run_test_tt_main server_suite
 
@@ -29,13 +35,8 @@ let test_menu_idx _ =
   assert_equal
     (update (Event.KeyDown (Event.Down, No_modifier)) (Menu 1))
     (Menu 0, Command.Noop)
-(* Raises because we dont have a riot process or the server process running
-        Does not throw the expected exn, but does throw so techinically not a failure
 
-   OUnit2.assert_raises (Riot.Invalid_destination Server.Handler.name) (fun () ->
-         update (Event.KeyDown (Event.Enter, No_modifier)) (Menu 0))
-*)
-
+(* Test TUI's responses to messages sent server->tui *)
 let test_custom_events _ =
   let open Minttea in
   let open Tui in
@@ -76,6 +77,7 @@ let test_custom_events _ =
     (update (Event.Custom Utils.Closed) (Chat init_state))
     (Chat { init_state with connection = Shutdown }, Command.Noop)
 
+(* Test key down events, not full coverage as some require a server process to be running *)
 let test_key_events _ =
   let open Minttea in
   let open Tui in
@@ -99,6 +101,7 @@ let test_key_events _ =
   | Chat { text; _ } -> assert_equal (Leaves.Text_input.current_text text) "a"
   | _ -> failwith "Char not added to text buffer"
 
+(* Tests spinner updates that happen in response Event.Frame events *)
 let test_frame _ =
   let open Minttea in
   let open Tui in

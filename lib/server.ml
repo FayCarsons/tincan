@@ -83,7 +83,8 @@ module Connection = struct
         send_message state acknowleged
     | Ok msg ->
         let raw = Bytestring.to_string msg |> String.trim in
-        let is_ping = String.starts_with ~prefix:acknowleged raw in
+        let is_ping = String.equal acknowleged raw in
+        (* let is_ping = String.starts_with ~prefix:acknowleged raw in *)
         let msg_to_tui = if is_ping then Acknowleged else Received raw in
         send recv msg_to_tui
     | Error `Would_block | (exception Syscall_timeout) -> ()
