@@ -62,7 +62,7 @@ module TcpServer = struct
 
   let read ({ recv; role; reader; _ } as state) =
     match
-      Bytestring.with_bytes ~capacity:1024 @@ fun buf -> IO.read ~timeout:100L reader buf
+      Bytestring.with_bytes ~capacity:1024 @@ fun buf -> IO.read ~timeout:10L reader buf
     with
     | Ok bs when Bytestring.length bs = 0 -> send recv Closed
     | Ok msg when role = Host ->

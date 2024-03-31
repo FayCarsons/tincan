@@ -1,12 +1,15 @@
+module Server : Riot.Application.Intf = Chat.Server.Handler
+module TUI : Riot.Application.Intf = Chat.Tui
+
 let () =
   let open Riot in
-  Runtime.set_log_level (Some Logger.Error);
+  Runtime.set_log_level None;
   start
     ~workers:8
     ~apps:
       [ (module Logger)
-      ; (module Server.Handler : Riot.Application.Intf)
-      ; (module Tui : Riot.Application.Intf)
+      ; (module Server : Application.Intf)
+      ; (module TUI : Application.Intf)
       ]
     ()
 ;;

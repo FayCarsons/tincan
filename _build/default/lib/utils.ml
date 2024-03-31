@@ -1,16 +1,11 @@
-type strategy =
-  | SingleProcess
-  | Multiprocess
-
-let current_strategy = SingleProcess
-
+(** Message type that is sent between process so they may communicate *)
 type Riot.Message.t +=
-  | Alive
   | (* Start server (port) *)
       StartServer of int * Riot.Pid.t
   | (* Start client *)
       StartClient of Uri.t * Riot.Pid.t
-  | (* Host/Client started *) Connected of Riot.Pid.t
+  | (* Host/Client started *)
+      Connected of Riot.Pid.t
   | (* Host sent back acknowleged message *)
       Acknowleged
   | (* Received a message *)
@@ -21,7 +16,8 @@ type Riot.Message.t +=
       Close
   | (* Connection closed *)
       Closed
-  | Err of string
+  | (* Fatal error *)
+      Err of string
 
 let ( >> ) f g x = g @@ f x
 

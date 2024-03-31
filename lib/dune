@@ -1,4 +1,4 @@
 (library
  (name chat)
- (wrapped false)
+ (wrapped true)
  (libraries riot minttea leaves spices spectrum))
