@@ -45,8 +45,8 @@ module Connection = struct
     reader : TcpStream.t IO.Reader.t;
     writer : TcpStream.t IO.Writer.t;
     conn : TcpStream.t;
-    role : role;
-    recv : Pid.t;
+    role : role;  (** User's current role *)
+    recv : Pid.t;  (** Process ID of TUI *)
   }
   (** State passed around process + helper fns *)
 

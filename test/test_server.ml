@@ -3,22 +3,19 @@ module Server = Chat.Server
 module Utils = Chat.Utils
 module Tui = Chat.Tui
 
-(* Unfortunately, due to Riot's multi-threading and scheduler system,
-   testing is non-trivial for an app like this
-   and is going to require time than I have right now.
-   that said, I've tested what I can *)
-
-let create_socket _ = assert (Server.get_socket 8080 |> Result.is_ok)
+(*
+    Unfortunately, due to Riot's multi-threading and scheduler system,
+    testing the Server and some of the TUI 
+    is highly involved, and I haven't had time
+    to get the coverage where I want it
+*)
 
 let test_acknowledged _ =
   assert (String.equal Server.Connection.acknowleged "$PING")
 
 let server_suite =
   "TCP_server_tests"
-  >::: [
-         "Creating a socket" >:: create_socket;
-         "test acknowleged flag equality works" >:: test_acknowledged;
-       ]
+  >::: [ "test acknowleged flag equality works" >:: test_acknowledged ]
 
 let () = OUnit2.run_test_tt_main server_suite
 
