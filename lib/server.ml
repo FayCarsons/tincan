@@ -212,7 +212,7 @@ module Handler = struct
 
   (** [start unit] begins handler and registers name to its process ID *)
   let start () =
-    Logger.set_log_level (Some Logger.Error);
+    Logger.set_log_level None;
     let pid = spawn_link handler in
     register name pid;
     Ok pid

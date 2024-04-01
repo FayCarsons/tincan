@@ -303,22 +303,20 @@ let other_user_style fmt = Spices.(default |> fg other_user_color |> build) fmt
 
 let info_style fmt =
   Spices.(
-    default |> italic true |> margin_top 2 |> margin_left 2 |> fg info_color
+    default |> italic true |> padding_top 2 |> padding_left 2 |> fg info_color
     |> build)
     fmt
 
 let error_style =
   Spices.(
-    default |> italic true |> margin_top 2 |> margin_left 2 |> fg error_color
+    default |> italic true |> padding_top 2 |> padding_left 2 |> fg error_color
     |> build)
-
-let menu_style fmt =
-  Spices.(default |> margin_top 2 |> margin_bottom 2 |> build) fmt
 
 (** [view_menu int] renders the menu *)
 let view_menu current_idx =
-  let open Spices in
-  let apply_list_style = default |> margin_top 2 |> margin_bottom 2 |> build in
+  let menu_style =
+    Spices.(default |> padding_top 2 |> padding_bottom 2 |> build)
+  in
   let place_cursor idx' choice =
     let cursor = if current_idx = idx' then "\240\159\152\184" else "-" in
     Format.sprintf "%s %s" cursor choice
@@ -327,8 +325,8 @@ let view_menu current_idx =
     List.mapi (fun i (choice, _, _) -> place_cursor i choice) menu
     |> String.concat "\n"
   in
-  apply_list_style "Hi! What would you like to do?\n%s\nPress `esc` to exit"
-    options
+  menu_style "Hi! Welcome to TinCan, what would you like to do?\n%s\n%s" options
+  @@ Spices.(default |> italic true |> build) "Press `esc` to close"
 
 let view_config { text; init_message; role } =
   let current_text = Text_input.current_text text in
@@ -409,6 +407,6 @@ let run_tui () = Minttea.run ~fps:30 ~initial_model @@ app ()
 (** [start unit] initializes the Minttea app as a Riot process and returns the process id to the runtime *)
 let start () =
   let open Riot in
-  Logger.set_log_level (Some Logger.Error);
+  Logger.set_log_level None;
   let pid = spawn_link run_tui in
   Ok pid
