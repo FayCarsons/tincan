@@ -9,7 +9,9 @@ module Tui = Chat.Tui
    that said, I've tested what I can *)
 
 let create_socket _ = assert (Server.get_socket 8080 |> Result.is_ok)
-let test_acknowledged _ = assert_equal Server.Connection.acknowleged "$PING"
+
+let test_acknowledged _ =
+  assert (String.equal Server.Connection.acknowleged "$PING")
 
 let server_suite =
   "TCP_server_tests"

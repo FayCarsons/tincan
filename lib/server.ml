@@ -23,13 +23,14 @@ let string_of_error = function
   | `Process_down -> "Process down!\r\n"
   | _ -> Printf.sprintf "other error\r\n"
 
-(** [send_err IO.io_error] sends an error to the TUI where it is shown to the user 
-    this is currently how errors are handled *)
+(** [send_err IO.io_error] sends an error to the TUI where it is shown to the user. 
+    This is currently how errors are handled *)
 let send_err recv err_msg = send recv @@ Err (string_of_error err_msg)
 
 module Connection = struct
-  (** Handles TCP connections and communicating with TUI and parent process *)
+  (** Handles TCP connections and communicating with TUI and Handler process *)
 
+  (* Create local logger for namespaced logs *)
   open Logger.Make (struct
     let namespace = [ "tincan"; "connection" ]
   end)
@@ -49,14 +50,15 @@ module Connection = struct
   }
   (** State passed around process + helper fns *)
 
-  (** [send_message state message] sends a string via the current TCP connection *)
+  (** [send_message state message] sends a string via the current TCP connection. 
+      Currently, errors+exns are forwarded to TUI and the process dies if recovery is not possible *)
   let rec send_message ({ writer; recv; _ } as state) message =
     let bufs = IO.Iovec.from_string @@ message ^ "\r\n" in
     match IO.write_all_vectored writer ~bufs with
     | Ok _ -> (
         (* After sending we flush the writer to ensure its buffer is clear *)
         match IO.flush writer with
-        | Ok () -> Logger.error (fun f -> f "Flushed writer!")
+        | Ok () -> ()
         | exception e -> send recv @@ Err (Printexc.to_string e)
         | Error err -> send_err recv err)
     | exception e ->
@@ -65,9 +67,7 @@ module Connection = struct
     | Error `Would_block | Error `Timeout ->
         yield ();
         send_message state message
-    | Error err ->
-        Logger.error (fun f -> f "ERROR SENDING: %a" IO.pp_err err);
-        send_err recv err
+    | Error err -> send_err recv err
 
   (** [read state] attempts to read from TCP stream, ignoring timeouts and calls that would block 
       so that we can return to reading fom the mailbox/sending messages if the stream is empty *)
@@ -124,20 +124,12 @@ module Connection = struct
     send recv (Connected pid)
 end
 
-(* Host initialization, broken down into smaller functions for testing *)
-
-(** [get_socket port] creates a Socket.listen_socket on provided port *)
-let get_socket port = TcpListener.bind ~port ()
-
-(** [accept listen_socket] waits for a connection on port and returns a stream socket *)
-let accept socket = TcpListener.accept socket |> Result.map fst
-
 (** [init_server int state] creates a TCP socket and begins listening for connections on it
     Once a connection is established it sends a "Connected" message to the TUI
     and returns state *)
 let init_server port =
-  let* socket = get_socket port in
-  let* conn = accept socket in
+  let* socket = TcpListener.bind ~port () in
+  let* conn = TcpListener.accept socket |> Result.map fst in
   Ok (Host, conn)
 
 (** [init_client uri] connects socket to URI,
@@ -149,7 +141,7 @@ let init_client uri =
   Ok (Client, conn)
 
 module Handler = struct
-  (** Supervisor, handles initializing and closing connections *)
+  (** Handles initializing and closing connections *)
 
   open Logger.Make (struct
     let namespace = [ "tincan"; "handler" ]

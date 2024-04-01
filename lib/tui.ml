@@ -38,26 +38,12 @@ let get_elapsed acknowleged =
   match acknowleged with
   | Sent init_time ->
       let time = Unix.gettimeofday () -. init_time in
-      String.sub (string_of_float time) 0 5
+      String.sub (string_of_float time) 0 7
   | _unreachable -> ""
-
-let string_of_conn = function
-  | Waiting -> "Waiting . . ."
-  | Open _ -> "Open"
-  | Shutdown -> "Shutdown"
 
 (* For message formatting *)
 let not_role = function Host -> Client | Client -> Host
 let string_of_role = function Host -> "Host" | Client -> "Client"
-
-(** [color r g b] converts an int8 RGB three-tuple into a Spices color *)
-let color (r, g, b) =
-  let hex_str n = Printf.sprintf "%02X" n in
-  Spices.color @@ Printf.sprintf "#%s%s%s" (hex_str r) (hex_str g) (hex_str b)
-
-let error_color = color (255, 1, 1)
-let main_color = color (0, 255, 30)
-let other_user_color = color (255, 255, 1)
 let initial_model = Menu 0
 
 (* For initialization *)
@@ -102,6 +88,8 @@ let bound_idx f idx =
   let len = List.length menu in
   (f idx mod len |> ( + ) len) mod 2
 
+(* Update fns *)
+
 (** [update_menu menu_index event] handles events for menu "page"
     this includes selecting the role *)
 let update_menu idx = function
@@ -142,6 +130,7 @@ let update_chat
       (Chat { model with history = (role, e) :: history }, Command.Noop)
   (* Msg received from TCP server *)
   | Event.Custom (Received msg) ->
+      let msg = String.trim msg in
       ( Chat { model with history = (not_role role, msg) :: history },
         Command.Noop )
   (* Received ping/acknowledged flag from host*)
@@ -208,7 +197,7 @@ let update_chat
   | Event.KeyDown (Event.Enter, _) ->
       let msg = Text_input.current_text text in
       let name = Server.Connection.name in
-      Riot.send_by_name ~name @@ Send msg;
+      Riot.send_by_name ~name (Send msg);
       ( Chat
           {
             model with
@@ -239,8 +228,28 @@ let update event model =
   | Menu idx -> update_menu idx event
   | Chat state -> update_chat state event
 
-let main_style =
-  Spices.(default |> margin_top 2 |> margin_left 2 |> fg main_color |> build)
+(* Colors *)
+let error_color = Spices.color "#FF0101"
+let main_color = Spices.color "#4756A1"
+let other_user_color = Spices.color "#F7C0C0"
+let info_color = Spices.color "#EA5D89"
+
+(* Styling *)
+let user_style = Spices.(default |> fg main_color |> build)
+let other_user_style fmt = Spices.(default |> fg other_user_color |> build) fmt
+
+let info_style =
+  Spices.(
+    default |> italic true |> margin_top 2 |> margin_left 2 |> fg info_color
+    |> build)
+
+let history_syle = Spices.(default |> border Border.rounded |> build)
+let input_style = Spices.(default |> margin_bottom 2 |> margin_left 2 |> build)
+
+let menu_style fmt =
+  Spices.(default |> margin_top 2 |> margin_bottom 2 |> build) fmt
+
+(* Render fns *)
 
 (** [view_menu int] renders the menu *)
 let view_menu current_idx =
@@ -259,38 +268,32 @@ let view_menu current_idx =
 
 (** [view_chat chat] renders the chat page *)
 let view_chat { role; connection; text; spinner; history; _ } =
-  let open Spices in
   (* Apply styling based on our current role and the role attached to the message *)
   let apply_role_style user (role, msg) =
-    let other_user_style = default |> fg other_user_color |> build in
     match (user, role) with
     | Host, Client -> other_user_style "Client" ^ ": " ^ msg
     | Client, Host -> other_user_style "Host" ^ ": " ^ msg
-    | _, _ ->
-        let apply_user_style = Spices.(default |> fg main_color |> build) in
-        apply_user_style "You" ^ ": " ^ msg
+    | _, _ -> user_style "You" ^ ": " ^ msg
   in
   (* We match on the current role and connection state *)
   match (role, connection) with
   | Host, Waiting ->
       let sprite = Option.map Sprite.view spinner |> Option.value ~default:"" in
-      main_style "Starting server and waiting for a connection %s" sprite
+      info_style "Waiting for a connection %s" sprite
   | Client, Waiting ->
       let sprite = Option.map Sprite.view spinner |> Option.value ~default:"" in
-      main_style "Connecting to server %s" sprite
+      info_style "Connecting to host %s" sprite
   | _, Open _ ->
       let history =
         List.rev history
         |> List.map (apply_role_style role)
         |> String.concat "\n"
       in
-      let history_syle = default |> margin_top 2 |> margin_left 2 |> build in
-      let input_style = default |> margin_bottom 2 |> margin_left 2 |> build in
       let current_input = Text_input.view text in
-      let text_input = input_style "%s" in
-      history_syle "%s" history ^ text_input current_input
-  | Host, Shutdown -> main_style "Client connection closed %s" String.empty
-  | Client, Shutdown -> main_style "Connection closed by host :/%s" String.empty
+      let text_input = input_style "%s" current_input in
+      history_syle "%s" history ^ "\n" ^ text_input
+  | Host, Shutdown -> info_style "Client connection closed~%s" String.empty
+  | Client, Shutdown -> info_style "Connection closed by host~%s" String.empty
 
 (** [view model] calls the proper rendering function on the model based on its state *)
 let view = function Menu idx -> view_menu idx | Chat state -> view_chat state
