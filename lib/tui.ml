@@ -185,7 +185,7 @@ let update_config ({ text; _ } as model) = function
     let current_text = Text_input.current_text text in
     let butlast = String.sub current_text 0 (String.length current_text - 2) in
     Config { model with text = Text_input.set_text butlast text }, Command.Noop
-  | Event.KeyDown (Event.Enter, _) -> validate_config model, Command.Noop
+  | Event.KeyDown (Event.Enter, _) -> validate_config model, Command.Hide_cursor
   | key -> Config { model with text = Text_input.update text key }, Command.Noop
 ;;
 
