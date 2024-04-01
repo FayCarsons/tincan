@@ -1,0 +1,11 @@
+lib: [
+  "_build/install/default/lib/tincan/META"
+  "_build/install/default/lib/tincan/dune-package"
+  "_build/install/default/lib/tincan/opam"
+]
+bin: [
+  "_build/install/default/bin/tincan"
+]
+doc: [
+  "_build/install/default/doc/tincan/README.md"
+]

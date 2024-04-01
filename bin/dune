@@ -1,4 +1,4 @@
 (executable
- (public_name server)
+ (public_name tincan)
  (name main)
  (libraries chat riot minttea leaves spices))

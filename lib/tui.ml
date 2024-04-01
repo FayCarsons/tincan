@@ -1,9 +1,11 @@
 (* Terminal UI following the Elm MVC model *)
-
 open Minttea
 open Leaves
 open Utils
-module Logger = Riot.Logger
+
+(* Using a growable vector for chat history so that messages can be pushed on the end
+   as opposed to lists where we'd have to cons messages and then reverse the list at render time*)
+module Vec = Containers.Vector
 
 type model =
   | Menu of int  (** Menu page *)
@@ -11,18 +13,19 @@ type model =
   | Chat of chat  (** Chat page *)
 
 and config = {
-  text : Text_input.t;
-  role : role;
+  text : Text_input.t;  (** Text input buffer *)
+  role : role;  (** User's chosen role *)
   init_message : (Riot.Message.t, string) result;
+      (** Holds URI/port or a message describing why user's input value is invalid. Used to initialize TCP process  *)
 }
 
 and chat = {
-  role : role;
-  connection : connection;
-  acknowleged : message_state;
+  role : role;  (** User's role *)
+  connection : connection;  (** Current status of TCP connection *)
+  acknowleged : message_status;
   text : Text_input.t;  (** Text input buffer *)
   spinner : Sprite.t option;  (** Loading sprite *)
-  history : (role * string) list;  (** Chat message history *)
+  history : (role * string, Vec.rw) Vec.t;  (** Chat message history *)
 }
 
 and connection =
@@ -32,12 +35,12 @@ and connection =
   | Shutdown
       (** Connection has been closed, the process has been shut down and socket closed *)
 
-and message_state =
+and message_status =
   | Sent of float  (** Pending acknowledgement ping, store time sent *)
   | HostAcknowleged
 
 (** gets the current time as seconds since the unix epoch *)
-let time () = Unix.gettimeofday ()
+let time = Unix.gettimeofday
 
 (** [get_elapsed msg-state] takes time of sent messssage, subtracts it from current time,
     getting the total elapsed time, and converts to a string *)
@@ -92,6 +95,7 @@ let default_port = 8080
 let default_uri = "127.0.0.1:8080"
 
 (* For initialization *)
+
 let default_host_model =
   {
     role = Host;
@@ -99,7 +103,7 @@ let default_host_model =
     acknowleged = HostAcknowleged;
     text = Text_input.empty ();
     spinner = Some Spinner.meter;
-    history = [];
+    history = Vec.create ();
   }
 
 let default_client_model =
@@ -109,7 +113,7 @@ let default_client_model =
     acknowleged = HostAcknowleged;
     text = Text_input.empty ();
     spinner = Some Spinner.mini_dot;
-    history = [];
+    history = Vec.create ();
   }
 
 (** [validate_uri uri] asserts that uri has a host *)
@@ -118,7 +122,7 @@ let validate_uri uri =
   if Uri.host as_t |> Option.is_some then Ok as_t
   else Error "Uri must contain a host!"
 
-(** [validate_port port_string] asserts that port is a number and is currently open *)
+(** [validate_port port_string] asserts that port is a number in the proper range *)
 let validate_port port =
   let in_range port =
     if 0 < port && port <= 65535 then Ok port else Error "Invalid port number"
@@ -181,37 +185,24 @@ let message_acknowledged ({ role; text; acknowleged; history; _ } as model) =
   let msg = Text_input.current_text text in
   let elapsed = get_elapsed acknowleged in
   let formatted = Printf.sprintf "%s : received in %ss" msg elapsed in
-  Chat
-    {
-      model with
-      acknowleged = HostAcknowleged;
-      text = Text_input.empty ();
-      history = (role, formatted) :: history;
-    }
+  Vec.push history (role, formatted);
+  Chat { model with acknowleged = HostAcknowleged; text = Text_input.empty () }
 
 (** [connected model] updates state when `Connected` message is received from TCP handler *)
 let connected ({ role; history; acknowleged; _ } as model) handler =
-  if role = Client then
+  if role = Client then (
+    Vec.push history
+      (role, Printf.sprintf "Connected to host in %ss" (get_elapsed acknowleged));
     Chat
       {
         model with
         connection = Open handler;
         acknowleged = HostAcknowleged;
         spinner = None;
-        history =
-          ( role,
-            Printf.sprintf "Connected to host in %ss" (get_elapsed acknowleged)
-          )
-          :: history;
-      }
-  else
-    Chat
-      {
-        model with
-        connection = Open handler;
-        spinner = None;
-        history = (role, "Established connection with client") :: history;
-      }
+      })
+  else (
+    Vec.push history (role, "Established connection with client");
+    Chat { model with connection = Open handler; spinner = None })
 
 (** [send_message model] attempts to send a message when in client mode.
     this acts as a no-op if a message is already pending
@@ -224,16 +215,14 @@ let send_message ({ role; connection; acknowleged; history; text; _ } as model)
       Riot.send handler (Send msg);
       let model =
         if role = Client then { model with acknowleged = Sent (time ()) }
-        else { model with history = (role, msg) :: history }
+        else (
+          Vec.push history (role, msg);
+          { model with text = Text_input.empty () })
       in
       Chat model
   | _ ->
-      Chat
-        {
-          model with
-          history =
-            (role, "Cannot send messages while pending a response") :: history;
-        }
+      Vec.push history (role, "Cannot send messages while pending a response");
+      Chat model
 
 (** [update_chat model event] handles event for chat page *)
 let update_chat
@@ -244,14 +233,16 @@ let update_chat
       let spinner = Option.map (Sprite.update ~now) spinner in
       (Chat { model with spinner }, Command.Noop)
   (* Custom events are messages sent from TCP connection process *)
-  | Event.Custom (Utils.Err e) ->
+  | Event.Custom (Utils.Err reason) ->
       (* print errors to chat history *)
-      (Chat { model with history = (role, e) :: history }, Command.Noop)
+      Vec.push history (role, reason);
+      (Chat model, Command.Noop)
   | Event.Custom (Received msg) ->
       let msg = String.trim msg in
-      ( Chat { model with history = (not_role role, msg) :: history },
-        Command.Noop )
-  | Event.Custom Acknowleged when role = Client ->
+      Vec.push history (not_role role, msg);
+      (Chat model, Command.Noop)
+  | Event.Custom Acknowleged
+    when role = Client && acknowleged != HostAcknowleged ->
       (message_acknowledged model, Command.Noop)
   | Event.Custom (Connected handler) -> (connected model handler, Command.Noop)
   | Event.Custom Closed ->
@@ -318,7 +309,7 @@ let view_menu current_idx =
     Spices.(default |> padding_top 2 |> padding_bottom 2 |> build)
   in
   let place_cursor idx' choice =
-    let cursor = if current_idx = idx' then "\240\159\152\184" else "-" in
+    let cursor = if current_idx = idx' then "[\240\159\152\184]" else "[  ]" in
     Format.sprintf "%s %s" cursor choice
   in
   let options =
@@ -352,8 +343,14 @@ let view_config { text; init_message; role } =
         "Please enter the inet address or host you'd like to connect to: "
       ^ current_uri ^ "\n" ^ err
 
-let history_syle = Spices.(default |> border Border.rounded |> build)
-let input_style = Spices.(default |> margin_bottom 2 |> margin_left 2 |> build)
+let history_syle =
+  Spices.(
+    default |> border Border.rounded |> max_height 100 |> max_width 100 |> build)
+
+let input_style =
+  Spices.(
+    default |> padding_bottom 2 |> padding_left 2 |> max_width 100
+    |> max_height 100 |> build)
 
 (** [view_chat chat] renders the chat page *)
 let view_chat { role; connection; text; spinner; history; _ } =
@@ -378,9 +375,9 @@ let view_chat { role; connection; text; spinner; history; _ } =
       info_style "Connecting to host %s" sprite_view
   | _, Open _ ->
       let history =
-        List.rev history
-        |> List.map (apply_role_style role)
-        |> String.concat "\n"
+        Vec.to_seq history
+        |> Seq.map (apply_role_style role)
+        |> Seq.fold_left (fun acc msg -> acc ^ msg ^ "\n") ""
       in
       let current_input = Text_input.view text in
       let text_input = input_style "%s" current_input in
@@ -402,11 +399,10 @@ let init _ = Command.Noop
 let app = Minttea.app ~init ~update ~view
 
 (** [run_tui unit] runs the app *)
-let run_tui () = Minttea.run ~fps:30 ~initial_model @@ app ()
+let run_tui () = Minttea.run ~fps:20 ~initial_model @@ app ()
 
 (** [start unit] initializes the Minttea app as a Riot process and returns the process id to the runtime *)
 let start () =
   let open Riot in
-  Logger.set_log_level None;
   let pid = spawn_link run_tui in
   Ok pid

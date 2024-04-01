@@ -1,4 +1,4 @@
 (library
  (name chat)
  (wrapped true)
- (libraries riot minttea leaves spices spectrum))
+ (libraries riot minttea leaves spices containers))
